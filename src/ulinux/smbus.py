@@ -2,6 +2,8 @@
 
 Essentially, this provides the same functionality that the ``i2c_smbus_*``
 functions from ``linux/i2c-dev.h`` do in C.
+
+API is mostly compatible with ``smbus`` and ``smbus2`` modules.
 """
 
 from fcntl import ioctl
@@ -96,11 +98,29 @@ class SMBus():
     """Object that represents a single I2C adapter
 
     Args:
-        path (str): The path to the I2C device node, e.g. ``/dev/i2c-0``
+        bus (int): The index of the I2C adapter
+        force (bool): Set to ``True`` to force using the adapter even if it is
+            already being used
     """
 
-    def __init__(self, path):
-        self._devnode = open(path, 'w+')
+    def __init__(self, bus=None, force=False):
+        self._devnode = None
+        self._fd = None
+        self._func = None
+        if bus:
+            self.open(bus)
+        self._force = force
+
+    def open(self, bus):
+        """Open the device node
+
+        Parameters:
+            bus (int): The index of the I2C adapter
+
+        This only needs to be called if ``bus`` was not supplied in the
+        constructor.
+        """
+        self._devnode = open('/dev/i2c-{}'.format(bus), 'w+')
         self._fd = self._devnode.fileno()
         flags = bytearray(4)
         ioctl(self._fd, _I2C_FUNCS, flags, mut=True)
@@ -129,8 +149,18 @@ class SMBus():
             'smbus_write_i2c_block': bool(flags & _I2C_FUNC_SMBUS_WRITE_I2C_BLOCK),
         }
 
+    def close(self):
+        """Close the connection"""
+        if self._devnode:
+            self._devnode.close()
+            self._devnode = None
+            self._fd = None
+
     def _access(self, address, read_write, command, size, data):
-        ioctl(self._fd, _I2C_SLAVE, address)
+        if self._force:
+            ioctl(self._fd, _I2C_SLAVE_FORCE, address)
+        else:
+            ioctl(self._fd, _I2C_SLAVE, address)
         b = bytearray(_size_of_i2c_smbus_ioctl_data)
         args = struct(addressof(b), _i2c_smbus_ioctl_data)
         args.read_write = read_write
